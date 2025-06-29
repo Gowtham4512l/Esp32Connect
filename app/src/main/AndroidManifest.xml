@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+    Android Manifest for ESP32 Connect Application
+    
+    This manifest defines:
+    - Required permissions for Wi-Fi and Bluetooth operations
+    - Hardware feature requirements
+    - Application configuration and components
+    - Activity declarations and intent filters
+    
+    The app requires extensive permissions for:
+    - Wi-Fi scanning and connection
+    - Bluetooth Low Energy operations
+    - File access for transfer operations
+    - Location services (required for Wi-Fi/BLE scanning)
+-->
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- === NETWORK PERMISSIONS === -->
+    <!-- Required for HTTP communication with ESP32 devices -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Required for network state monitoring and management -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
+    <!-- Required for Wi-Fi scanning and connection to ESP32 access points -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+    <!-- === LOCATION PERMISSIONS === -->
+    <!-- Required for Wi-Fi and Bluetooth scanning on Android 6+ -->
+    <!-- These are mandatory for discovering ESP32 devices -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- Required for Wi-Fi scanning on Android 13+ (API 33+) -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+
+    <!-- === BLUETOOTH PERMISSIONS === -->
+    <!-- Legacy Bluetooth permissions for Android < 12 -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+
+    <!-- Modern Bluetooth permissions for Android 12+ -->
+    <!-- These provide more granular control over Bluetooth operations -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+
+    <!-- === FILE ACCESS PERMISSIONS === -->
+    <!-- Legacy storage permission for Android < 13 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <!-- Granular media permission for Android 13+ -->
+    <!-- Allows reading image files for transfer to ESP32 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- === HARDWARE FEATURE REQUIREMENTS === -->
+    <!-- Declare required hardware features for Play Store filtering -->
+
+    <!-- Wi-Fi hardware required for ESP32 Wi-Fi communication -->
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="true" />
+
+    <!-- Bluetooth Low Energy required for ESP32 BLE communication -->
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="true" />
+
+    <!-- === APPLICATION CONFIGURATION === -->
+    <!-- Main application configuration with backup rules, theming, and Android 12+ features -->
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Esp32Connect"
+        tools:targetApi="31">
+        <!-- === MAIN ACTIVITY === -->
+        <!-- Primary activity for ESP32 Connect application -->
+        <!-- Configures the main entry point with launcher intent and theming -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Esp32Connect">
+
+            <!-- Intent filter for app launcher -->
+            <!-- Makes this activity the main entry point and shows it in the app drawer -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

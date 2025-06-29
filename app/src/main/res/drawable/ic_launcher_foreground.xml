@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Main ESP32 chip -->
+    <path android:pathData="M32,42 L76,42 A6,6 0 0,1 82,48 L82,60 A6,6 0 0,1 76,66 L32,66 A6,6 0 0,1 26,60 L26,48 A6,6 0 0,1 32,42 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="26"
+                android:startY="42"
+                android:endX="82"
+                android:endY="66"
+                android:type="linear">
+                <item
+                    android:color="#10b981"
+                    android:offset="0.0" />
+                <item
+                    android:color="#059669"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Chip highlight -->
+    <path
+        android:pathData="M32,42 L70,42 A6,6 0 0,1 76,48 L76,52 A6,6 0 0,1 70,58 L32,58 A6,6 0 0,1 26,52 L26,48 A6,6 0 0,1 32,42 Z"
+        android:fillColor="#ffffff"
+        android:fillAlpha="0.15" />
+
+    <!-- Left side pins -->
+    <rect android:fillColor="#4b5563" android:pathData="M18,45 L26,45 L26,47 L18,47 Z" />
+    <rect android:fillColor="#4b5563" android:pathData="M18,49 L26,49 L26,51 L18,51 Z" />
+    <rect android:fillColor="#4b5563" android:pathData="M18,53 L26,53 L26,55 L18,55 Z" />
+    <rect android:fillColor="#4b5563" android:pathData="M18,57 L26,57 L26,59 L18,59 Z" />
+    <rect android:fillColor="#4b5563" android:pathData="M18,61 L26,61 L26,63 L18,63 Z" />
+
+    <!-- Right side pins -->
+    <rect android:fillColor="#4b5563" android:pathData="M82,45 L90,45 L90,47 L82,47 Z" />
+    <rect android:fillColor="#4b5563" android:pathData="M82,49 L90,49 L90,51 L82,51 Z" />
+    <rect android:fillColor="#4b5563" android:pathData="M82,53 L90,53 L90,55 L82,55 Z" />
+    <rect android:fillColor="#4b5563" android:pathData="M82,57 L90,57 L90,59 L82,59 Z" />
+    <rect android:fillColor="#4b5563" android:pathData="M82,61 L90,61 L90,63 L82,63 Z" />
+
+    <!-- Central chip indicator (instead of text) -->
+    <path
+        android:pathData="M50,54 A4,4 0 1,1 58,54 A4,4 0 1,1 50,54"
+        android:fillColor="#ffffff"
+        android:fillAlpha="0.9" />
+    <path
+        android:pathData="M52,54 A2,2 0 1,1 56,54 A2,2 0 1,1 52,54"
+        android:fillColor="#059669" />
+
+    <!-- WiFi signal indicator -->
+    <path
+        android:pathData="M42,30 Q54,24 66,30"
+        android:strokeWidth="2"
+        android:strokeColor="#fbbf24"
+        android:strokeAlpha="0.8" />
+    <path
+        android:pathData="M45,33 Q54,29 63,33"
+        android:strokeWidth="1.5"
+        android:strokeColor="#fbbf24"
+        android:strokeAlpha="0.6" />
+    <path
+        android:pathData="M48,36 Q54,33 60,36"
+        android:strokeWidth="1"
+        android:strokeColor="#fbbf24"
+        android:strokeAlpha="0.4" />
+
+    <!-- Data transfer indicators -->
+    <!-- Upload indicator -->
+    <path
+        android:fillColor="#ef4444"
+        android:pathData="M36,75 L40,71 L44,75 L42,75 L42,82 L38,82 L38,75 Z" />
+
+    <!-- Download indicator -->
+    <path
+        android:fillColor="#22c55e"
+        android:pathData="M64,71 L68,75 L72,71 L70,71 L70,64 L66,64 L66,71 Z" />
+
+    <!-- Data flow dots -->
+    <path
+        android:pathData="M49,78 A1,1 0 1,1 51,78 A1,1 0 1,1 49,78"
+        android:fillColor="#60a5fa"
+        android:fillAlpha="0.7" />
+    <path
+        android:pathData="M53.2,80 A0.8,0.8 0 1,1 54.8,80 A0.8,0.8 0 1,1 53.2,80"
+        android:fillColor="#60a5fa"
+        android:fillAlpha="0.5" />
+    <path
+        android:pathData="M57,78 A1,1 0 1,1 59,78 A1,1 0 1,1 57,78"
+        android:fillColor="#60a5fa"
+        android:fillAlpha="0.7" />
+</vector>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Blue gradient background -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:type="linear">
+                <item
+                    android:color="#1e3a8a"
+                    android:offset="0.0" />
+                <item
+                    android:color="#3b82f6"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Subtle circuit pattern background -->
+    <path
+        android:pathData="M19,20 A1,1 0 1,1 21,20 A1,1 0 1,1 19,20"
+        android:fillColor="#60a5fa"
+        android:fillAlpha="0.3" />
+    <path
+        android:pathData="M87,20 A1,1 0 1,1 89,20 A1,1 0 1,1 87,20"
+        android:fillColor="#60a5fa"
+        android:fillAlpha="0.3" />
+    <path
+        android:pathData="M19,88 A1,1 0 1,1 21,88 A1,1 0 1,1 19,88"
+        android:fillColor="#60a5fa"
+        android:fillAlpha="0.3" />
+    <path
+        android:pathData="M87,88 A1,1 0 1,1 89,88 A1,1 0 1,1 87,88"
+        android:fillColor="#60a5fa"
+        android:fillAlpha="0.3" />
+
+    <!-- Connection lines -->
+    <path
+        android:pathData="M20,20 L30,20"
+        android:strokeColor="#60a5fa"
+        android:strokeWidth="0.5"
+        android:strokeAlpha="0.2" />
+    <path
+        android:pathData="M78,20 L88,20"
+        android:strokeColor="#60a5fa"
+        android:strokeWidth="0.5"
+        android:strokeAlpha="0.2" />
+</vector>

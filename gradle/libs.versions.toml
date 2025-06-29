@@ -1,0 +1,103 @@
+# ===================================================================
+# ESP32 Connect - Gradle Version Catalog
+# ===================================================================
+# This file centralizes all dependency versions for the project.
+# It provides type-safe dependency management and version synchronization
+# across all modules.
+#
+# Benefits:
+# - Single source of truth for versions
+# - Type-safe dependency declarations
+# - Automatic IDE completion
+# - Easy version updates
+# ===================================================================
+
+[versions]
+# === BUILD TOOLS ===
+agp = "8.6.1"                              # Android Gradle Plugin
+kotlin = "1.9.22"                          # Kotlin compiler version
+
+# === ANDROID CORE ===
+coreKtx = "1.12.0"                         # AndroidX Core KTX extensions
+lifecycleRuntimeKtx = "2.7.0"              # Lifecycle runtime with KTX
+activityCompose = "1.8.2"                  # Activity Compose integration
+
+# === JETPACK COMPOSE ===
+composeBom = "2024.02.00"                  # Compose Bill of Materials
+composeCompiler = "1.5.8"                  # Compose compiler version
+lifecycleViewmodelCompose = "2.7.0"        # ViewModel Compose integration
+materialIconsExtended = "1.5.4"            # Extended Material icons
+
+# === PERMISSIONS ===
+accompanistPermissions = "0.34.0"           # Accompanist permissions helper
+
+# === NETWORKING ===
+okhttp = "4.12.0"                          # OkHttp client for ESP32 communication
+
+# === CONCURRENCY ===
+coroutines = "1.7.3"                       # Kotlin coroutines
+
+# === DATA HANDLING ===
+kotlinxSerialization = "1.6.2"             # Kotlin serialization
+
+# === TESTING ===
+junit = "4.13.2"                           # JUnit 4 testing framework
+junitVersion = "1.1.5"                     # AndroidX JUnit extensions
+espressoCore = "3.5.1"                     # Espresso UI testing
+
+[libraries]
+# === ANDROID CORE LIBRARIES ===
+# Core Android functionality and KTX extensions
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+
+# === JETPACK COMPOSE LIBRARIES ===
+# Compose UI framework and related components
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleViewmodelCompose" }
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended", version.ref = "materialIconsExtended" }
+
+# === TESTING LIBRARIES ===
+# Unit testing and Android instrumented testing
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+
+# === ESP32 CONNECT SPECIFIC LIBRARIES ===
+
+# Permissions handling
+accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanistPermissions" }
+
+# HTTP client for ESP32 communication
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+
+# Coroutines for asynchronous operations
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# JSON serialization for device communication
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+[plugins]
+# === BUILD PLUGINS ===
+# Core plugins for Android app development with Kotlin
+
+# Android application plugin for building APKs
+android-application = { id = "com.android.application", version.ref = "agp" }
+
+# Kotlin Android plugin for Kotlin language support
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+
+# Kotlin Parcelize plugin for automatic Parcelable implementation
+kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlin" }
+
+# Kotlin Serialization plugin for JSON and data serialization
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
