@@ -12,7 +12,12 @@ import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Looper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -54,11 +59,18 @@ class WifiTransfer(private val context: Context) {
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    /** HTTP client configured for ESP32 communication */
+    // Use background thread for Wi-Fi operations
+    private val wifiHandlerThread = HandlerThread("WifiOperations").apply { start() }
+    private val wifiHandler = Handler(wifiHandlerThread.looper)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // HTTP client configured for ESP32 communication
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true) // Enable retry for better reliability
+        .connectionPool(okhttp3.ConnectionPool(5, 5, java.util.concurrent.TimeUnit.MINUTES))
         .build()
 
     // === CONNECTION STATE ===
@@ -94,24 +106,27 @@ class WifiTransfer(private val context: Context) {
             val scanResultsReceiver = object : android.content.BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: android.content.Intent?) {
                     if (intent?.action == WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) {
-                        try {
-                            val scanResults = wifiManager.scanResults
-                            // Filter for ESP32 devices - look for common ESP32 AP names
-                            // ESP32_AP
-                            val esp32Devices = scanResults?.filter { scanResult ->
-                                scanResult.SSID?.let { ssid ->
-                                    ssid.contains("ESP32", ignoreCase = true) ||
-                                            ssid.contains("ESP", ignoreCase = true) ||
-                                            ssid.startsWith("ESP32_") ||
-                                            ssid.startsWith("ESP_")
-                                } ?: false
-                            } ?: emptyList()
+                        // Process scan results on background thread
+                        wifiHandler.post {
+                            try {
+                                val scanResults = wifiManager.scanResults
+                                // Filter for ESP32 devices - look for common ESP32 AP names
+                                // ESP32_AP
+                                val esp32Devices = scanResults?.filter { scanResult ->
+                                    scanResult.SSID?.let { ssid ->
+                                        ssid.contains("ESP32", ignoreCase = true) ||
+                                                ssid.contains("ESP", ignoreCase = true) ||
+                                                ssid.startsWith("ESP32_") ||
+                                                ssid.startsWith("ESP_")
+                                    } ?: false
+                                } ?: emptyList()
 
-                            context?.unregisterReceiver(this)
-                            continuation.resume(esp32Devices)
-                        } catch (e: Exception) {
-                            context?.unregisterReceiver(this)
-                            continuation.resume(emptyList())
+                                context?.unregisterReceiver(this)
+                                continuation.resume(esp32Devices)
+                            } catch (e: Exception) {
+                                context?.unregisterReceiver(this)
+                                continuation.resume(emptyList())
+                            }
                         }
                     }
                 }
@@ -122,15 +137,18 @@ class WifiTransfer(private val context: Context) {
 
             try {
                 context.registerReceiver(scanResultsReceiver, intentFilter)
-                val scanStarted = wifiManager.startScan()
 
-                if (!scanStarted) {
-                    try {
-                        context.unregisterReceiver(scanResultsReceiver)
-                    } catch (e: Exception) {
-                        // Receiver might not be registered
+                // Start scan on background thread
+                wifiHandler.post {
+                    val scanStarted = wifiManager.startScan()
+                    if (!scanStarted) {
+                        try {
+                            context.unregisterReceiver(scanResultsReceiver)
+                        } catch (e: Exception) {
+                            // Receiver might not be registered
+                        }
+                        continuation.resume(emptyList())
                     }
-                    continuation.resume(emptyList())
                 }
             } catch (e: Exception) {
                 continuation.resume(emptyList())
@@ -161,68 +179,74 @@ class WifiTransfer(private val context: Context) {
     suspend fun connectToDevice(scanResult: ScanResult): Boolean =
         withTimeoutOrNull(CONNECTION_TIMEOUT) {
             suspendCancellableCoroutine { continuation ->
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        // Android 10+ - Use NetworkRequest API
-                        val ssid = scanResult.SSID
-                        if (ssid.isNullOrEmpty()) {
-                            continuation.resume(false)
-                            return@suspendCancellableCoroutine
-                        }
-
-                        val specifier = WifiNetworkSpecifier.Builder()
-                            .setSsid(ssid)
-                            .setWpa2Passphrase("esp32password") // Default ESP32 password - make this configurable
-                            .build()
-
-                        val request = NetworkRequest.Builder()
-                            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-                            .setNetworkSpecifier(specifier)
-                            .build()
-
-                        networkCallback = object : ConnectivityManager.NetworkCallback() {
-                            override fun onAvailable(network: Network) {
-                                connectedNetwork = network
-                                continuation.resume(true)
-                            }
-
-                            override fun onUnavailable() {
+                // Process connection on background thread
+                wifiHandler.post {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            // Android 10+ - Use NetworkRequest API
+                            val ssid = scanResult.SSID
+                            if (ssid.isNullOrEmpty()) {
                                 continuation.resume(false)
+                                return@post
                             }
 
-                            override fun onLost(network: Network) {
-                                if (network == connectedNetwork) {
-                                    connectedNetwork = null
+                            val specifier = WifiNetworkSpecifier.Builder()
+                                .setSsid(ssid)
+                                .setWpa2Passphrase("esp32password") // Default ESP32 password
+                                .build()
+
+                            val request = NetworkRequest.Builder()
+                                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+                                .setNetworkSpecifier(specifier)
+                                .build()
+
+                            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                                override fun onAvailable(network: Network) {
+                                    connectedNetwork = network
+                                    // Add small delay to ensure network is fully established
+                                    wifiHandler.postDelayed({
+                                        continuation.resume(true)
+                                    }, 2000) // 2 second delay
+                                }
+
+                                override fun onUnavailable() {
+                                    continuation.resume(false)
+                                }
+
+                                override fun onLost(network: Network) {
+                                    if (network == connectedNetwork) {
+                                        connectedNetwork = null
+                                    }
                                 }
                             }
-                        }
 
-                        connectivityManager.requestNetwork(request, networkCallback!!)
+                            connectivityManager.requestNetwork(request, networkCallback!!)
 
-                    } else {
-                        // Pre-Android 10 - Use WifiConfiguration (deprecated but still works)
-                        @Suppress("DEPRECATION")
-                        val wifiConfig = WifiConfiguration().apply {
-                            SSID = "\"${scanResult.SSID}\""
-                            preSharedKey = "\"esp32pass\"" // Default password
-                            allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK)
-                        }
-
-                        val networkId = wifiManager.addNetwork(wifiConfig)
-                        if (networkId != -1) {
-                            wifiManager.disconnect()
-                            val enabled = wifiManager.enableNetwork(networkId, true)
-                            wifiManager.reconnect()
-                            continuation.resume(enabled)
                         } else {
-                            continuation.resume(false)
-                        }
-                    }
+                            // Pre-Android 10 - Use WifiConfiguration (deprecated but still works)
+                            @Suppress("DEPRECATION")
+                            val wifiConfig = WifiConfiguration().apply {
+                                SSID = "\"${scanResult.SSID}\""
+                                preSharedKey = "\"esp32password\"" // Default password
+                                allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK)
+                            }
 
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    continuation.resume(false)
+                            val networkId = wifiManager.addNetwork(wifiConfig)
+                            if (networkId != -1) {
+                                wifiManager.disconnect()
+                                val enabled = wifiManager.enableNetwork(networkId, true)
+                                wifiManager.reconnect()
+                                continuation.resume(enabled)
+                            } else {
+                                continuation.resume(false)
+                            }
+                        }
+
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        continuation.resume(false)
+                    }
                 }
 
                 continuation.invokeOnCancellation {
@@ -238,17 +262,45 @@ class WifiTransfer(private val context: Context) {
         } ?: false
 
     /**
+     * Validates connection to ESP32 device by pinging the default IP.
+     */
+    private suspend fun validateConnection(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val testRequest = Request.Builder()
+                .url("http://192.168.4.1/")
+                .head()
+                .build()
+
+            val call =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && connectedNetwork != null) {
+                    okHttpClient.newBuilder()
+                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .socketFactory(connectedNetwork!!.socketFactory)
+                        .build()
+                        .newCall(testRequest)
+                } else {
+                    okHttpClient.newCall(testRequest)
+                }
+
+            call.execute().use { response ->
+                response.isSuccessful || response.code in 400..499
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Transfers a file to the ESP32 device via HTTP POST.
-     *
      * Process:
-     * 1. Creates temporary file from URI
-     * 2. Sends HTTP POST to ESP32 at 192.168.4.1/upload
-     * 3. Reports progress via callback
-     * 4. Cleans up temporary files
+     * 1. Validates connection to ESP32
+     * 2. Creates temporary file from URI
+     * 3. Sends HTTP POST to ESP32 at 192.168.4.1/upload
+     * 4. Reports progress via callback
+     * 5. Cleans up temporary files
      *
      * @param fileUri URI of the file to transfer
      * @param onProgress Callback for upload progress (0.0 to 1.0)
-     * @param onComplete Callback for transfer completion (success/failure)
      */
     suspend fun transferFile(
         fileUri: Uri,
@@ -257,55 +309,94 @@ class WifiTransfer(private val context: Context) {
     ) {
         isTransferCancelled = false
 
-        try {
-            // Create temporary file from URI
-            val inputStream = context.contentResolver.openInputStream(fileUri)
-            val tempFile =
-                File(context.cacheDir, "temp_transfer_file_${System.currentTimeMillis()}")
+        // Validate connection first
+        if (!validateConnection()) {
+            mainHandler.post { onComplete(false) }
+            return
+        }
 
-            inputStream?.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
 
-            // Prepare the HTTP request
-            val requestBody = tempFile.asRequestBody("image/*".toMediaType())
-
-            val request = Request.Builder()
-                .url("http://192.168.4.1/upload") // Default ESP32 AP IP
-                .post(createProgressRequestBody(requestBody, onProgress))
-                .addHeader("Content-Type", "multipart/form-data")
-                .build()
-
-            // Execute request on the connected network
-            val call =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && connectedNetwork != null) {
-                    okHttpClient.newBuilder()
-                        .socketFactory(connectedNetwork!!.socketFactory)
-                        .build()
-                        .newCall(request)
-                } else {
-                    okHttpClient.newCall(request)
-                }
-
-            call.execute().use { response ->
-                val success = response.isSuccessful
-                onComplete(success)
-            }
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-            onComplete(false)
-        } finally {
-            // Clean up temp files
+        // Perform all file operations on IO dispatcher
+        withContext(Dispatchers.IO) {
+            var tempFile: File? = null
             try {
-                val tempFiles = context.cacheDir.listFiles { file ->
-                    file.name.startsWith("temp_transfer_file_")
+                // Create temporary file from URI on IO thread
+                val inputStream = context.contentResolver.openInputStream(fileUri)
+                tempFile =
+                    File(context.cacheDir, "temp_transfer_file_${System.currentTimeMillis()}")
+
+                inputStream?.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        // Use buffered copying for better performance
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            if (isTransferCancelled) {
+                                throw IOException("Transfer cancelled")
+                            }
+                        }
+                    }
                 }
-                tempFiles?.forEach { it.delete() }
+
+                // Prepare the HTTP request
+                val requestBody = tempFile.asRequestBody("image/*".toMediaType())
+
+                val request = Request.Builder()
+                    .url("http://192.168.4.1/upload") // Default ESP32 AP IP
+                    .post(createProgressRequestBody(requestBody, onProgress))
+                    .addHeader("Content-Type", "multipart/form-data")
+                    .addHeader("Connection", "keep-alive") // Optimize connection reuse
+                    .build()
+
+                // Execute request on the connected network
+                val call =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && connectedNetwork != null) {
+                        okHttpClient.newBuilder()
+                            .socketFactory(connectedNetwork!!.socketFactory)
+                            .build()
+                            .newCall(request)
+                    } else {
+                        okHttpClient.newCall(request)
+                    }
+
+                // Execute HTTP request
+                call.execute().use { response ->
+                    val success = response.isSuccessful
+                    // Report completion on main thread
+                    mainHandler.post { onComplete(success) }
+                }
+
             } catch (e: Exception) {
-                // Ignore cleanup errors
+                e.printStackTrace()
+                mainHandler.post { onComplete(false) }
+            } finally {
+                // Clean up temp files on background thread
+                tempFile?.let { file ->
+                    try {
+                        if (file.exists()) {
+                            file.delete()
+                        }
+                    } catch (e: Exception) {
+                        // Ignore cleanup errors
+                    }
+                }
+
+                // Clean up all temp files
+                try {
+                    val tempFiles = context.cacheDir.listFiles { file ->
+                        file.name.startsWith("temp_transfer_file_")
+                    }
+                    tempFiles?.forEach {
+                        try {
+                            it.delete()
+                        } catch (e: Exception) {
+                            // Ignore individual file cleanup errors
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignore cleanup errors
+                }
             }
         }
     }
@@ -328,6 +419,8 @@ class WifiTransfer(private val context: Context) {
             override fun writeTo(sink: BufferedSink) {
                 val totalBytes = contentLength()
                 var uploadedBytes = 0L
+                var lastProgressReport = 0L
+                val progressUpdateInterval = 100L // Report progress every 100ms max
 
                 val progressSink = object : ForwardingSink(sink) {
                     override fun write(source: okio.Buffer, byteCount: Long) {
@@ -338,13 +431,20 @@ class WifiTransfer(private val context: Context) {
                         super.write(source, byteCount)
                         uploadedBytes += byteCount
 
-                        val progress = if (totalBytes > 0) {
-                            uploadedBytes.toFloat() / totalBytes.toFloat()
-                        } else {
-                            0f
-                        }
+                        // Throttle progress updates to prevent UI flooding
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastProgressReport >= progressUpdateInterval) {
+                            lastProgressReport = currentTime
 
-                        onProgress(progress)
+                            val progress = if (totalBytes > 0) {
+                                (uploadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
+
+                            // Report progress on main thread efficiently
+                            mainHandler.post { onProgress(progress) }
+                        }
                     }
                 }
 
@@ -368,14 +468,20 @@ class WifiTransfer(private val context: Context) {
      */
     fun cleanup() {
         isTransferCancelled = true
-        networkCallback?.let {
-            try {
-                connectivityManager.unregisterNetworkCallback(it)
-            } catch (e: Exception) {
-                // Network callback might already be unregistered
+
+        wifiHandler.post {
+            networkCallback?.let {
+                try {
+                    connectivityManager.unregisterNetworkCallback(it)
+                } catch (e: Exception) {
+                    // Network callback might already be unregistered
+                }
             }
+            networkCallback = null
+            connectedNetwork = null
+
+            // Clean up background thread
+            wifiHandlerThread.quitSafely()
         }
-        networkCallback = null
-        connectedNetwork = null
     }
 }

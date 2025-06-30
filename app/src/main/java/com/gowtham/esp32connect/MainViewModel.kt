@@ -10,8 +10,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * MainViewModel handles the core business logic for ESP32 Connect app.
@@ -100,6 +102,10 @@ class MainViewModel : ViewModel() {
     /** Application context needed for system services */
     private var appContext: Context? = null
 
+    // === Progress throttling ===
+    private var lastProgressUpdate = 0L
+    private val progressUpdateInterval = 100L // Update UI every 100ms max
+
     /**
      * Initializes the ViewModel with Android context and creates transfer handlers.
      * This must be called before any device scanning or transfer operations.
@@ -107,9 +113,11 @@ class MainViewModel : ViewModel() {
      * @param context Android context (will be converted to application context)
      */
     fun initializeWithContext(context: Context) {
-        appContext = context.applicationContext
-        wifiTransfer = WifiTransfer(appContext!!)
-        bleTransfer = BleTransfer(appContext!!)
+        viewModelScope.launch(Dispatchers.IO) {
+            appContext = context.applicationContext
+            wifiTransfer = WifiTransfer(appContext!!)
+            bleTransfer = BleTransfer(appContext!!)
+        }
     }
 
     /**
@@ -120,35 +128,60 @@ class MainViewModel : ViewModel() {
      * @param uri URI of the selected file
      */
     fun selectFile(context: Context, uri: Uri) {
-        if (appContext == null) initializeWithContext(context)
-
-        selectedFileUri = uri
-        clearError()
-
-        // Extract file metadata using ContentResolver
-        val contentResolver = context.contentResolver
-        val cursor = contentResolver.query(uri, null, null, null, null)
-        cursor?.use {
-            if (it.moveToFirst()) {
-                val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                val sizeIndex = it.getColumnIndex(android.provider.OpenableColumns.SIZE)
-
-                // Extract file name
-                if (nameIndex >= 0) {
-                    selectedFileName = it.getString(nameIndex) ?: "Unknown"
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (appContext == null) {
+                    withContext(Dispatchers.Main) {
+                        initializeWithContext(context)
+                    }
+                    // Wait for initialization
+                    delay(100)
                 }
 
-                // Extract and format file size
-                if (sizeIndex >= 0) {
-                    val size = it.getLong(sizeIndex)
-                    selectedFileSize = formatFileSize(size)
+                selectedFileUri = uri
+                withContext(Dispatchers.Main) { clearError() }
 
-                    // Warn user about large files that may take longer to transfer
-                    if (size > 10 * 1024 * 1024) { // 10MB threshold
-                        showError("Large file selected (${selectedFileSize}). Transfer may take longer.")
-                    } else {
-                        showError("File selected successfully: ${selectedFileName}")
+                // Extract file metadata using ContentResolver
+                val contentResolver = context.contentResolver
+                val cursor = contentResolver.query(uri, null, null, null, null)
+
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val nameIndex =
+                            it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        val sizeIndex = it.getColumnIndex(android.provider.OpenableColumns.SIZE)
+
+                        var fileName = "Unknown"
+                        var fileSize = ""
+
+                        // Extract file name
+                        if (nameIndex >= 0) {
+                            fileName = it.getString(nameIndex) ?: "Unknown"
+                        }
+
+                        if (sizeIndex >= 0) {
+                            val size = it.getLong(sizeIndex)
+                            fileSize = formatFileSize(size)
+                        }
+
+                        // Update UI on main thread
+                        withContext(Dispatchers.Main) {
+                            selectedFileName = fileName
+                            selectedFileSize = fileSize
+
+                            // Warn user about large files that may take longer to transfer
+                            val size = if (sizeIndex >= 0) it.getLong(sizeIndex) else 0L
+                            if (size > 10 * 1024 * 1024) { // // 10MB threshold
+                                showError("Large file selected ($fileSize). Transfer may take longer.")
+                            } else {
+                                showError("File selected successfully: $fileName")
+                            }
+                        }
                     }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    showError("Error selecting file: ${e.message}")
                 }
             }
         }
@@ -161,27 +194,34 @@ class MainViewModel : ViewModel() {
     fun scanWifiDevices() {
         if (isScanning || appContext == null) return
 
-        viewModelScope.launch {
-            isScanning = true
-            clearError()
-
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                showError("Scanning for ESP32 Wi-Fi networks...")
-                val devices = wifiTransfer?.scanForESP32Devices() ?: emptyList()
-                wifiDevices = devices
+                withContext(Dispatchers.Main) {
+                    isScanning = true
+                    clearError()
+                    showError("Scanning for ESP32 Wi-Fi networks...")
+                }
 
-                // Provide user feedback based on scan results
-                if (devices.isEmpty()) {
-                    showError("No ESP32 Wi-Fi networks found. Check if ESP32 is in AP mode.")
-                } else {
-                    showError("Found ${devices.size} ESP32 device(s)")
+                val devices = wifiTransfer?.scanForESP32Devices() ?: emptyList()
+
+                withContext(Dispatchers.Main) {
+                    wifiDevices = devices
+                    if (devices.isEmpty()) {
+                        showError("No ESP32 Wi-Fi networks found. Check if ESP32 is in AP mode.")
+                    } else {
+                        showError("Found ${devices.size} ESP32 device(s)")
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                wifiDevices = emptyList()
-                showError("Wi-Fi scan failed: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    wifiDevices = emptyList()
+                    showError("Wi-Fi scan failed: ${e.message}")
+                }
             } finally {
-                isScanning = false
+                withContext(Dispatchers.Main) {
+                    isScanning = false
+                }
             }
         }
     }
@@ -193,27 +233,34 @@ class MainViewModel : ViewModel() {
     fun scanBleDevices() {
         if (isScanning || appContext == null) return
 
-        viewModelScope.launch {
-            isScanning = true
-            clearError()
-
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                showError("Scanning for ESP32 BLE devices...")
-                val devices = bleTransfer?.scanForESP32Devices() ?: emptyList()
-                bleDevices = devices
+                withContext(Dispatchers.Main) {
+                    isScanning = true
+                    clearError()
+                    showError("Scanning for ESP32 BLE devices...")
+                }
 
-                // Provide user feedback based on scan results
-                if (devices.isEmpty()) {
-                    showError("No ESP32 BLE devices found. Check if ESP32 is advertising.")
-                } else {
-                    showError("Found ${devices.size} ESP32 BLE device(s)")
+                val devices = bleTransfer?.scanForESP32Devices() ?: emptyList()
+
+                withContext(Dispatchers.Main) {
+                    bleDevices = devices
+                    if (devices.isEmpty()) {
+                        showError("No ESP32 BLE devices found. Check if ESP32 is advertising.")
+                    } else {
+                        showError("Found ${devices.size} ESP32 BLE device(s)")
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                bleDevices = emptyList()
-                showError("BLE scan failed: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    bleDevices = emptyList()
+                    showError("BLE scan failed: ${e.message}")
+                }
             } finally {
-                isScanning = false
+                withContext(Dispatchers.Main) {
+                    isScanning = false
+                }
             }
         }
     }
@@ -225,23 +272,34 @@ class MainViewModel : ViewModel() {
      * @param device The Wi-Fi scan result representing the ESP32 device
      */
     fun connectToWifiDevice(device: ScanResult) {
-        viewModelScope.launch {
-            clearError()
-            showError("Connecting to ${device.SSID}...")
-
+        viewModelScope.launch(Dispatchers.IO) {
             try {
+                withContext(Dispatchers.Main) {
+                    clearError()
+                    showError("Connecting to ${device.SSID}...")
+                }
+
                 val success = wifiTransfer?.connectToDevice(device) ?: false
+
+                withContext(Dispatchers.Main) {
+                    if (success) {
+                        connectedDevice = device.SSID
+                        showError("Connected to ${device.SSID} successfully!")
+                    } else {
+                        showError("Failed to connect to ${device.SSID}. Check password and try again.")
+                    }
+                }
+
                 if (success) {
-                    connectedDevice = device.SSID
+                    // Cleanup BLE connection in background
                     // Ensure only one connection type is active at a time
                     bleTransfer?.cleanup()
-                    showError("Connected to ${device.SSID} successfully!")
-                } else {
-                    showError("Failed to connect to ${device.SSID}. Check password and try again.")
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                showError("Connection error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    showError("Connection error: ${e.message}")
+                }
             }
         }
     }
@@ -254,23 +312,34 @@ class MainViewModel : ViewModel() {
      */
     @SuppressLint("MissingPermission")
     fun connectToBleDevice(device: BluetoothDevice) {
-        viewModelScope.launch {
-            clearError()
-            showError("Connecting to ${device.name ?: device.address}...")
-
+        viewModelScope.launch(Dispatchers.IO) {
             try {
+                withContext(Dispatchers.Main) {
+                    clearError()
+                    showError("Connecting to ${device.name ?: device.address}...")
+                }
+
                 val success = bleTransfer?.connectToDevice(device) ?: false
+
+                withContext(Dispatchers.Main) {
+                    if (success) {
+                        connectedDevice = device.address
+                        showError("Connected to ${device.name ?: device.address} successfully!")
+                    } else {
+                        showError("Failed to connect to ${device.name ?: "BLE device"}. Check device status.")
+                    }
+                }
+
                 if (success) {
-                    connectedDevice = device.address
+                    // Cleanup Wi-Fi connection in background
                     // Ensure only one connection type is active at a time
                     wifiTransfer?.cleanup()
-                    showError("Connected to ${device.name ?: device.address} successfully!")
-                } else {
-                    showError("Failed to connect to ${device.name ?: "BLE device"}. Check device status.")
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                showError("BLE connection error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    showError("BLE connection error: ${e.message}")
+                }
             }
         }
     }
@@ -287,38 +356,52 @@ class MainViewModel : ViewModel() {
     fun transferFileViaWifi() {
         if (selectedFileUri == null || connectedDevice == null || isTransferring) return
 
-        viewModelScope.launch {
-            isTransferring = true
-            transferProgress = 0f
-            clearError()
-            showError("Starting Wi-Fi transfer...")
-
+        viewModelScope.launch(Dispatchers.IO) {
             try {
+                withContext(Dispatchers.Main) {
+                    isTransferring = true
+                    transferProgress = 0f
+                    clearError()
+                    showError("Starting Wi-Fi transfer...")
+                }
+
                 wifiTransfer?.transferFile(
                     selectedFileUri!!,
                     onProgress = { progress ->
-                        transferProgress = progress
-                        // Update UI with progress percentage
-                        if (progress > 0f && progress < 1f) {
-                            showError("Transferring... ${(progress * 100).toInt()}%")
+                        // Throttle progress updates to prevent UI flooding
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastProgressUpdate >= progressUpdateInterval) {
+                            lastProgressUpdate = currentTime
+
+                            // Update UI with progress percentage
+                            viewModelScope.launch(Dispatchers.Main) {
+                                transferProgress = progress
+                                if (progress > 0f && progress < 1f) {
+                                    showError("Transferring... ${(progress * 100).toInt()}%")
+                                }
+                            }
                         }
                     },
                     onComplete = { success ->
-                        isTransferring = false
-                        if (success) {
-                            transferProgress = 1f
-                            showError("File transferred successfully via Wi-Fi!")
-                        } else {
-                            transferProgress = 0f
-                            showError("Wi-Fi transfer failed. Check ESP32 connection and try again.")
+                        viewModelScope.launch(Dispatchers.Main) {
+                            isTransferring = false
+                            if (success) {
+                                transferProgress = 1f
+                                showError("File transferred successfully via Wi-Fi!")
+                            } else {
+                                transferProgress = 0f
+                                showError("Wi-Fi transfer failed. Check ESP32 connection and try again.")
+                            }
                         }
                     }
                 )
             } catch (e: Exception) {
                 e.printStackTrace()
-                isTransferring = false
-                transferProgress = 0f
-                showError("Transfer error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    isTransferring = false
+                    transferProgress = 0f
+                    showError("Transfer error: ${e.message}")
+                }
             }
         }
     }
@@ -335,38 +418,52 @@ class MainViewModel : ViewModel() {
     fun transferFileViaBle() {
         if (selectedFileUri == null || connectedDevice == null || isTransferring) return
 
-        viewModelScope.launch {
-            isTransferring = true
-            transferProgress = 0f
-            clearError()
-            showError("Starting BLE transfer...")
-
+        viewModelScope.launch(Dispatchers.IO) {
             try {
+                withContext(Dispatchers.Main) {
+                    isTransferring = true
+                    transferProgress = 0f
+                    clearError()
+                    showError("Starting BLE transfer...")
+                }
+
                 bleTransfer?.transferFile(
                     selectedFileUri!!,
                     onProgress = { progress ->
-                        transferProgress = progress
-                        // Update UI with progress percentage
-                        if (progress > 0f && progress < 1f) {
-                            showError("Transferring... ${(progress * 100).toInt()}%")
+                        // Throttle progress updates to prevent UI flooding
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastProgressUpdate >= progressUpdateInterval) {
+                            lastProgressUpdate = currentTime
+
+                            // Update UI with progress percentage
+                            viewModelScope.launch(Dispatchers.Main) {
+                                transferProgress = progress
+                                if (progress > 0f && progress < 1f) {
+                                    showError("Transferring... ${(progress * 100).toInt()}%")
+                                }
+                            }
                         }
                     },
                     onComplete = { success ->
-                        isTransferring = false
-                        if (success) {
-                            transferProgress = 1f
-                            showError("File transferred successfully via BLE!")
-                        } else {
-                            transferProgress = 0f
-                            showError("BLE transfer failed. Check connection and try again.")
+                        viewModelScope.launch(Dispatchers.Main) {
+                            isTransferring = false
+                            if (success) {
+                                transferProgress = 1f
+                                showError("File transferred successfully via BLE!")
+                            } else {
+                                transferProgress = 0f
+                                showError("BLE transfer failed. Check connection and try again.")
+                            }
                         }
                     }
                 )
             } catch (e: Exception) {
                 e.printStackTrace()
-                isTransferring = false
-                transferProgress = 0f
-                showError("Transfer error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    isTransferring = false
+                    transferProgress = 0f
+                    showError("Transfer error: ${e.message}")
+                }
             }
         }
     }
@@ -376,11 +473,16 @@ class MainViewModel : ViewModel() {
      * Resets transfer state and notifies both Wi-Fi and BLE handlers.
      */
     fun cancelTransfer() {
-        isTransferring = false
-        transferProgress = 0f
-        wifiTransfer?.cancelTransfer()
-        bleTransfer?.cancelTransfer()
-        showError("Transfer cancelled by user")
+        viewModelScope.launch(Dispatchers.IO) {
+            wifiTransfer?.cancelTransfer()
+            bleTransfer?.cancelTransfer()
+
+            withContext(Dispatchers.Main) {
+                isTransferring = false
+                transferProgress = 0f
+                showError("Transfer cancelled by user")
+            }
+        }
     }
 
     /**
@@ -409,7 +511,8 @@ class MainViewModel : ViewModel() {
         }
 
         // Schedule automatic message clearing
-        viewModelScope.launch {
+        // Use Dispatchers.Main.immediate for time-sensitive UI updates
+        viewModelScope.launch(Dispatchers.Main.immediate) {
             delay(clearDelay)
             // Only clear if message hasn't changed
             if (errorMessage == message) {
@@ -445,7 +548,10 @@ class MainViewModel : ViewModel() {
      */
     override fun onCleared() {
         super.onCleared()
-        wifiTransfer?.cleanup()
-        bleTransfer?.cleanup()
+        // Cleanup in background to avoid blocking main thread
+        viewModelScope.launch(Dispatchers.IO) {
+            wifiTransfer?.cleanup()
+            bleTransfer?.cleanup()
+        }
     }
 }

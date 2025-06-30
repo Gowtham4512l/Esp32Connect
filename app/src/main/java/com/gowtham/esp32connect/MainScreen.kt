@@ -1,3 +1,4 @@
+// changed code
 package com.gowtham.esp32connect
 
 /**
@@ -62,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -114,7 +116,20 @@ fun MainScreen(
     var hasRequestedPermissions by remember { mutableStateOf(false) }
 
     /** Tab labels for the connection type selector */
-    val tabs = listOf("Wi-Fi", "BLE")
+    val tabs = remember { listOf("Wi-Fi", "BLE") }
+
+    // Derived state to reduce recomposition
+    val hasSelectedFile by remember {
+        derivedStateOf { viewModel.selectedFileName.isNotEmpty() }
+    }
+
+    val showTransferProgress by remember {
+        derivedStateOf { viewModel.isTransferring }
+    }
+
+    val showErrorMessage by remember {
+        derivedStateOf { viewModel.errorMessage.isNotEmpty() }
+    }
 
     // === INITIALIZATION ===
     // Initialize ViewModel with Android context on first composition
@@ -123,7 +138,7 @@ fun MainScreen(
     }
 
     // === FILE SELECTION ===
-    // File picker launcher with MIME type validation
+    // Efficient file picker with with MIME type validation validation
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -151,6 +166,7 @@ fun MainScreen(
         }
     }
 
+    // LazyColumn with key-based composition for better performance
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -158,213 +174,48 @@ fun MainScreen(
             .padding(16.dp)
     ) {
         // === APPLICATION HEADER ===
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            MaterialTheme.colorScheme.primaryContainer,
-                            RoundedCornerShape(12.dp)
-                        )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Router,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = ESP32Blue
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "ESP Connect",
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Transfer images to ESP32 via Wi-Fi or BLE",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
+        item(key = "header") {
+            AppHeaderCard()
         }
 
-        item {
+        item(key = "spacer1") {
             Spacer(modifier = Modifier.height(20.dp))
         }
 
         // === CONNECTION TYPE SELECTOR ===
-        item {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                TabRow(
-                    selectedTabIndex = selectedTabIndex,
-                    modifier = Modifier.fillMaxWidth(),
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        val isSelected = selectedTabIndex == index
-                        val animatedAlpha by animateFloatAsState(
-                            targetValue = if (isSelected) 1f else 0.6f,
-                            animationSpec = tween(300), label = "tab_alpha"
-                        )
-
-                        Tab(
-                            selected = isSelected,
-                            onClick = { selectedTabIndex = index },
-                            modifier = Modifier.padding(vertical = 8.dp),
-                            text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (index == 0) Icons.Default.Wifi else Icons.Default.Bluetooth,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = if (index == 0) WifiGreen else BluetoothBlue
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = title,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = animatedAlpha)
-                                    )
-                                }
-                            }
-                        )
-                    }
-                }
-            }
+        item(key = "tabs") {
+            ConnectionTypeSelector(
+                selectedTabIndex = selectedTabIndex,
+                tabs = tabs,
+                onTabSelected = { selectedTabIndex = it }
+            )
         }
 
-        item {
+        item(key = "spacer2") {
             Spacer(modifier = Modifier.height(20.dp))
         }
 
         // === FILE SELECTION SECTION ===
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Selected File",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (viewModel.selectedFileName.isNotEmpty()) {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(
-                                    alpha = 0.3f
-                                )
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = viewModel.selectedFileName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Size: ${viewModel.selectedFileSize}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-                    } else {
-                        Text(
-                            text = "No file selected",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Button(
-                        onClick = {
-                            // Check permissions before opening file picker
-                            if (permissionState.allPermissionsGranted) {
-                                filePickerLauncher.launch("image/*")
-                            } else {
-                                hasRequestedPermissions = true
-                                permissionState.launchMultiplePermissionRequest()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Select Image File (.jpeg/.bmp)",
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
+        item(key = "file_selection") {
+            FileSelectionCard(
+                hasSelectedFile = hasSelectedFile,
+                selectedFileName = viewModel.selectedFileName,
+                selectedFileSize = viewModel.selectedFileSize,
+                hasPermissions = permissionState.allPermissionsGranted,
+                onSelectFile = { filePickerLauncher.launch("image/*") },
+                onRequestPermissions = {
+                    hasRequestedPermissions = true
+                    permissionState.launchMultiplePermissionRequest()
                 }
-            }
+            )
         }
 
-        item {
+        item(key = "spacer3") {
             Spacer(modifier = Modifier.height(20.dp))
         }
 
         // === CONNECTION MODE CONTENT ===
-        item {
+        item(key = "connection_content") {
             when (selectedTabIndex) {
                 0 -> WifiContent(
                     viewModel = viewModel,
@@ -391,11 +242,11 @@ fun MainScreen(
         }
 
         // === TRANSFER PROGRESS ===
-        if (viewModel.isTransferring) {
-            item {
+        if (showTransferProgress) {
+            item(key = "spacer_progress") {
                 Spacer(modifier = Modifier.height(12.dp))
             }
-            item {
+            item(key = "transfer_progress") {
                 TransferProgressCard(
                     progress = viewModel.transferProgress,
                     isTransferring = viewModel.isTransferring,
@@ -405,71 +256,231 @@ fun MainScreen(
         }
 
         // === STATUS AND ERROR MESSAGING ===
-        if (viewModel.errorMessage.isNotEmpty()) {
-            item {
+        if (showErrorMessage) {
+            item(key = "spacer_error") {
                 Spacer(modifier = Modifier.height(12.dp))
             }
-            item {
-                val isError = viewModel.errorMessage.contains("error", ignoreCase = true) ||
-                        viewModel.errorMessage.contains("failed", ignoreCase = true)
-                val isSuccess =
-                    viewModel.errorMessage.contains("successfully", ignoreCase = true) ||
-                            viewModel.errorMessage.contains("Connected to", ignoreCase = true)
-
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = when {
-                            isSuccess -> MaterialTheme.colorScheme.primaryContainer
-                            isError -> MaterialTheme.colorScheme.errorContainer
-                            else -> MaterialTheme.colorScheme.surfaceVariant
-                        }
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = when {
-                                isSuccess -> Icons.Default.CheckCircle
-                                isError -> Icons.Default.Error
-                                else -> Icons.Default.Info
-                            },
-                            contentDescription = null,
-                            tint = when {
-                                isSuccess -> ConnectedGreen
-                                isError -> MaterialTheme.colorScheme.onErrorContainer
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = viewModel.errorMessage,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = when {
-                                isSuccess -> MaterialTheme.colorScheme.onPrimaryContainer
-                                isError -> MaterialTheme.colorScheme.onErrorContainer
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(
-                            onClick = { viewModel.showError("") }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss",
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
+            item(key = "error_message") {
+                ErrorMessageCard(
+                    errorMessage = viewModel.errorMessage,
+                    onDismiss = { viewModel.showError("") }
+                )
             }
         }
 
-        item {
+        item(key = "spacer_final") {
             Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+}
+
+/**
+ * OPTIMIZED: Application header as separate composable to reduce recomposition
+ */
+@Composable
+private fun AppHeaderCard() {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    MaterialTheme.colorScheme.primaryContainer,
+                    RoundedCornerShape(12.dp)
+                )
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Router,
+                    contentDescription = null,
+                    modifier = Modifier.size(56.dp),
+                    tint = ESP32Blue
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "ESP Connect",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Transfer images to ESP32 via Wi-Fi or BLE",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+/**
+ * OPTIMIZED: Connection type selector as separate composable
+ */
+@Composable
+private fun ConnectionTypeSelector(
+    selectedTabIndex: Int,
+    tabs: List<String>,
+    onTabSelected: (Int) -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        TabRow(
+            selectedTabIndex = selectedTabIndex,
+            modifier = Modifier.fillMaxWidth(),
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ) {
+            tabs.forEachIndexed { index, title ->
+                val isSelected = selectedTabIndex == index
+                val animatedAlpha by animateFloatAsState(
+                    targetValue = if (isSelected) 1f else 0.6f,
+                    animationSpec = tween(300), label = "tab_alpha"
+                )
+
+                Tab(
+                    selected = isSelected,
+                    onClick = { onTabSelected(index) },
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if (index == 0) Icons.Default.Wifi else Icons.Default.Bluetooth,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = if (index == 0) WifiGreen else BluetoothBlue
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = title,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = animatedAlpha)
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * OPTIMIZED: File selection card as separate composable
+ */
+@Composable
+private fun FileSelectionCard(
+    hasSelectedFile: Boolean,
+    selectedFileName: String,
+    selectedFileSize: String,
+    hasPermissions: Boolean,
+    onSelectFile: () -> Unit,
+    onRequestPermissions: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Image,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Selected File",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (hasSelectedFile) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = selectedFileName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Size: $selectedFileSize",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    text = "No file selected",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    // Check permissions before opening file picker
+                    if (hasPermissions) {
+                        onSelectFile()
+                    } else {
+                        onRequestPermissions()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Select Image File (.jpeg/.bmp)",
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -503,85 +514,129 @@ fun WifiContent(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Wifi,
-                        contentDescription = null,
-                        tint = WifiGreen,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "ESP32 Devices (Wi-Fi)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                if (hasPermissions) {
-                    IconButton(
-                        onClick = { viewModel.scanWifiDevices() },
-                        enabled = !viewModel.isScanning
-                    ) {
-                        if (viewModel.isScanning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = WifiGreen,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Scan",
-                                tint = WifiGreen
-                            )
-                        }
-                    }
-                }
-            }
+            // Header row with scan control
+            WifiContentHeader(
+                isScanning = viewModel.isScanning,
+                hasPermissions = hasPermissions,
+                onScan = { viewModel.scanWifiDevices() }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (!hasPermissions) {
-                PermissionRequiredCard(
-                    title = "Wi-Fi Permissions Required",
-                    description = "Location permissions are required to scan for Wi-Fi networks and connect to ESP32 devices.",
-                    onRequestPermissions = onRequestPermissions
-                )
-            } else if (viewModel.wifiDevices.isEmpty()) {
-                EmptyStateCard(
-                    title = "No ESP32 devices found",
-                    description = "Make sure your ESP32 is in AP mode with SSID containing 'ESP32' or 'ESP'",
-                    tips = listOf(
-                        "Check ESP32 is powered on",
-                        "Verify AP mode is enabled",
-                        "Default password: 'esp32pass'"
-                    ),
-                    icon = Icons.Default.Wifi,
-                    iconColor = WifiGreen
-                )
-            } else {
-                Column {
-                    viewModel.wifiDevices.forEach { device ->
-                        DeviceItem(
-                            deviceName = device.SSID ?: "Unknown Network",
-                            deviceInfo = "Signal: ${device.level} dBm",
-                            deviceType = "Wi-Fi",
-                            isConnected = viewModel.connectedDevice == device.SSID,
-                            onConnect = { viewModel.connectToWifiDevice(device) },
-                            onTransfer = { viewModel.transferFileViaWifi() },
-                            canTransfer = viewModel.selectedFileName.isNotEmpty() &&
-                                    viewModel.connectedDevice == device.SSID &&
-                                    !viewModel.isTransferring
-                        )
-                    }
+            when {
+                !hasPermissions -> {
+                    PermissionRequiredCard(
+                        title = "Wi-Fi Permissions Required",
+                        description = "Location permissions are required to scan for Wi-Fi networks and connect to ESP32 devices.",
+                        onRequestPermissions = onRequestPermissions
+                    )
+                }
+
+                viewModel.wifiDevices.isEmpty() -> {
+                    EmptyStateCard(
+                        title = "No ESP32 devices found",
+                        description = "Make sure your ESP32 is in AP mode with SSID containing 'ESP32' or 'ESP'",
+                        tips = listOf(
+                            "Check ESP32 is powered on",
+                            "Verify AP mode is enabled",
+                            "Default password: 'esp32password'"
+                        ),
+                        icon = Icons.Default.Wifi,
+                        iconColor = WifiGreen
+                    )
+                }
+
+                else -> {
+                    // OPTIMIZATION: Use LazyColumn for device list to handle large lists efficiently
+                    WifiDeviceList(
+                        devices = viewModel.wifiDevices,
+                        connectedDevice = viewModel.connectedDevice,
+                        hasSelectedFile = viewModel.selectedFileName.isNotEmpty(),
+                        isTransferring = viewModel.isTransferring,
+                        onConnect = { device -> viewModel.connectToWifiDevice(device) },
+                        onTransfer = { viewModel.transferFileViaWifi() }
+                    )
                 }
             }
+        }
+    }
+}
+
+/**
+ *  Wi-Fi content header
+ */
+@Composable
+private fun WifiContentHeader(
+    isScanning: Boolean,
+    hasPermissions: Boolean,
+    onScan: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Wifi,
+                contentDescription = null,
+                tint = WifiGreen,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "ESP32 Devices (Wi-Fi)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        if (hasPermissions) {
+            IconButton(
+                onClick = onScan,
+                enabled = !isScanning
+            ) {
+                if (isScanning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = WifiGreen,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Scan",
+                        tint = WifiGreen
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * OPTIMIZED: Wi-Fi device list with efficient rendering
+ */
+@Composable
+private fun WifiDeviceList(
+    devices: List<android.net.wifi.ScanResult>,
+    connectedDevice: String?,
+    hasSelectedFile: Boolean,
+    isTransferring: Boolean,
+    onConnect: (android.net.wifi.ScanResult) -> Unit,
+    onTransfer: () -> Unit
+) {
+    Column {
+        devices.forEach { device ->
+            DeviceItem(
+                deviceName = device.SSID ?: "Unknown Network",
+                deviceInfo = "Signal: ${device.level} dBm",
+                deviceType = "Wi-Fi",
+                isConnected = connectedDevice == device.SSID,
+                onConnect = { onConnect(device) },
+                onTransfer = onTransfer,
+                canTransfer = hasSelectedFile && connectedDevice == device.SSID && !isTransferring
+            )
         }
     }
 }
@@ -616,85 +671,130 @@ fun BleContent(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Bluetooth,
-                        contentDescription = null,
-                        tint = BluetoothBlue,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "ESP32 Devices (BLE)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                if (hasPermissions) {
-                    IconButton(
-                        onClick = { viewModel.scanBleDevices() },
-                        enabled = !viewModel.isScanning
-                    ) {
-                        if (viewModel.isScanning) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = BluetoothBlue,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Scan",
-                                tint = BluetoothBlue
-                            )
-                        }
-                    }
-                }
-            }
+            // Header row with scan control
+            BleContentHeader(
+                isScanning = viewModel.isScanning,
+                hasPermissions = hasPermissions,
+                onScan = { viewModel.scanBleDevices() }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (!hasPermissions) {
-                PermissionRequiredCard(
-                    title = "Bluetooth Permissions Required",
-                    description = "Bluetooth and location permissions are required for BLE scanning and device communication.",
-                    onRequestPermissions = onRequestPermissions
-                )
-            } else if (viewModel.bleDevices.isEmpty()) {
-                EmptyStateCard(
-                    title = "No ESP32 BLE devices found",
-                    description = "Make sure your ESP32 is advertising over Bluetooth Low Energy",
-                    tips = listOf(
-                        "Check ESP32 BLE is enabled",
-                        "Verify service UUID matches",
-                        "Device name should contain 'ESP32' or 'ESP'"
-                    ),
-                    icon = Icons.Default.Bluetooth,
-                    iconColor = BluetoothBlue
-                )
-            } else {
-                Column {
-                    viewModel.bleDevices.forEach { device ->
-                        DeviceItem(
-                            deviceName = device.name ?: "Unknown ESP32",
-                            deviceInfo = "MAC: ${device.address}",
-                            deviceType = "BLE",
-                            isConnected = viewModel.connectedDevice == device.address,
-                            onConnect = { viewModel.connectToBleDevice(device) },
-                            onTransfer = { viewModel.transferFileViaBle() },
-                            canTransfer = viewModel.selectedFileName.isNotEmpty() &&
-                                    viewModel.connectedDevice == device.address &&
-                                    !viewModel.isTransferring
-                        )
-                    }
+            when {
+                !hasPermissions -> {
+                    PermissionRequiredCard(
+                        title = "Bluetooth Permissions Required",
+                        description = "Bluetooth and location permissions are required for BLE scanning and device communication.",
+                        onRequestPermissions = onRequestPermissions
+                    )
+                }
+
+                viewModel.bleDevices.isEmpty() -> {
+                    EmptyStateCard(
+                        title = "No ESP32 BLE devices found",
+                        description = "Make sure your ESP32 is advertising over Bluetooth Low Energy",
+                        tips = listOf(
+                            "Check ESP32 BLE is enabled",
+                            "Verify service UUID matches",
+                            "Device name should contain 'ESP32' or 'ESP'"
+                        ),
+                        icon = Icons.Default.Bluetooth,
+                        iconColor = BluetoothBlue
+                    )
+                }
+
+                else -> {
+                    // OPTIMIZATION: Use efficient device list rendering
+                    BleDeviceList(
+                        devices = viewModel.bleDevices,
+                        connectedDevice = viewModel.connectedDevice,
+                        hasSelectedFile = viewModel.selectedFileName.isNotEmpty(),
+                        isTransferring = viewModel.isTransferring,
+                        onConnect = { device -> viewModel.connectToBleDevice(device) },
+                        onTransfer = { viewModel.transferFileViaBle() }
+                    )
                 }
             }
+        }
+    }
+}
+
+/**
+ * OPTIMIZED: BLE content header as separate composable
+ */
+@Composable
+private fun BleContentHeader(
+    isScanning: Boolean,
+    hasPermissions: Boolean,
+    onScan: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Bluetooth,
+                contentDescription = null,
+                tint = BluetoothBlue,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "ESP32 Devices (BLE)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        if (hasPermissions) {
+            IconButton(
+                onClick = onScan,
+                enabled = !isScanning
+            ) {
+                if (isScanning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = BluetoothBlue,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Scan",
+                        tint = BluetoothBlue
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * OPTIMIZED: BLE device list with efficient rendering
+ */
+@Composable
+@SuppressLint("MissingPermission")
+private fun BleDeviceList(
+    devices: List<android.bluetooth.BluetoothDevice>,
+    connectedDevice: String?,
+    hasSelectedFile: Boolean,
+    isTransferring: Boolean,
+    onConnect: (android.bluetooth.BluetoothDevice) -> Unit,
+    onTransfer: () -> Unit
+) {
+    Column {
+        devices.forEach { device ->
+            DeviceItem(
+                deviceName = device.name ?: "Unknown ESP32",
+                deviceInfo = "MAC: ${device.address}",
+                deviceType = "BLE",
+                isConnected = connectedDevice == device.address,
+                onConnect = { onConnect(device) },
+                onTransfer = onTransfer,
+                canTransfer = hasSelectedFile && connectedDevice == device.address && !isTransferring
+            )
         }
     }
 }
@@ -726,11 +826,13 @@ fun DeviceItem(
     onTransfer: () -> Unit,
     canTransfer: Boolean
 ) {
+    // Use remember for stable references
     val animatedContainerColor by animateColorAsState(
         targetValue = MaterialTheme.colorScheme.surfaceVariant,
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "device_color"
     )
+
 
     Card(
         modifier = Modifier
@@ -740,9 +842,7 @@ fun DeviceItem(
             containerColor = animatedContainerColor
         ),
         shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 4.dp
-        )
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -752,6 +852,7 @@ fun DeviceItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Device info column with weight to prevent layout shifts
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -783,46 +884,66 @@ fun DeviceItem(
                         )
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (!isConnected) {
-                        Button(
-                            onClick = onConnect,
-                            modifier = Modifier.height(40.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text(
-                                "Connect",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Connected",
-                            tint = ConnectedGreen,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Button(
-                            onClick = onTransfer,
-                            enabled = canTransfer,
-                            modifier = Modifier.height(40.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = TransferOrange,
-                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Text(
-                                "Transfer",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
+
+                // Action buttons with stable references
+                DeviceActionButtons(
+                    isConnected = isConnected,
+                    canTransfer = canTransfer,
+                    onConnect = onConnect,
+                    onTransfer = onTransfer
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Device action buttons as separate composable
+ */
+@Composable
+private fun DeviceActionButtons(
+    isConnected: Boolean,
+    canTransfer: Boolean,
+    onConnect: () -> Unit,
+    onTransfer: () -> Unit
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (!isConnected) {
+            Button(
+                onClick = onConnect,
+                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Text(
+                    "Connect",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        } else {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = "Connected",
+                tint = ConnectedGreen,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Button(
+                onClick = onTransfer,
+                enabled = canTransfer,
+                modifier = Modifier.height(40.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TransferOrange,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Text(
+                    "Transfer",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -848,7 +969,8 @@ fun TransferProgressCard(
 ) {
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
-        animationSpec = tween(300, easing = FastOutSlowInEasing), label = "progress"
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "progress"
     )
 
     Card(
@@ -916,6 +1038,72 @@ fun TransferProgressCard(
 }
 
 /**
+ * Error message card
+ */
+@Composable
+private fun ErrorMessageCard(
+    errorMessage: String,
+    onDismiss: () -> Unit
+) {
+    val isError = remember(errorMessage) {
+        errorMessage.contains("error", ignoreCase = true) ||
+                errorMessage.contains("failed", ignoreCase = true)
+    }
+    val isSuccess = remember(errorMessage) {
+        errorMessage.contains("successfully", ignoreCase = true) ||
+                errorMessage.contains("Connected to", ignoreCase = true)
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                isSuccess -> MaterialTheme.colorScheme.primaryContainer
+                isError -> MaterialTheme.colorScheme.errorContainer
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = when {
+                    isSuccess -> Icons.Default.CheckCircle
+                    isError -> Icons.Default.Error
+                    else -> Icons.Default.Info
+                },
+                contentDescription = null,
+                tint = when {
+                    isSuccess -> ConnectedGreen
+                    isError -> MaterialTheme.colorScheme.onErrorContainer
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = errorMessage,
+                style = MaterialTheme.typography.bodyMedium,
+                color = when {
+                    isSuccess -> MaterialTheme.colorScheme.onPrimaryContainer
+                    isError -> MaterialTheme.colorScheme.onErrorContainer
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss",
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
  * Permission request prompt card.
  *
  * Displays when required permissions are not granted, providing:
@@ -977,42 +1165,6 @@ fun PermissionRequiredCard(
                     fontWeight = FontWeight.Medium
                 )
             }
-        }
-    }
-}
-
-/**
- * Loading state indicator card.
- *
- * Shows a progress spinner with message during scanning operations.
- *
- * @param message Loading message to display
- * @param color Theme color for the progress indicator
- */
-@Composable
-fun LoadingCard(
-    message: String,
-    color: androidx.compose.ui.graphics.Color
-) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                color = color,
-                strokeWidth = 2.dp
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium
-            )
         }
     }
 }
@@ -1115,14 +1267,8 @@ private fun isValidImageType(mimeType: String?): Boolean {
     }
 }
 
-// ===============================
-// COMPOSE PREVIEWS
-// ===============================
 
-/**
- * Preview for the main screen showing empty state (no devices found).
- * Displays the Wi-Fi tab with no permissions granted to show the permission request UI.
- */
+// COMPOSE PREVIEWS
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun MainScreenPreview() {
@@ -1132,7 +1278,7 @@ fun MainScreenPreview() {
         tips = listOf(
             "Check ESP32 is powered on",
             "Verify AP mode is enabled",
-            "Default password: 'esp32pass'"
+            "Default password: 'esp32password'"
         ),
         icon = Icons.Default.Wifi,
         iconColor = WifiGreen
@@ -1196,17 +1342,5 @@ fun PermissionRequiredCardPreview() {
         title = "Wi-Fi Permissions Required",
         description = "Location permissions are required to scan for Wi-Fi networks and connect to ESP32 devices.",
         onRequestPermissions = { }
-    )
-}
-
-/**
- * Preview for the loading state card.
- */
-@Preview(showBackground = true)
-@Composable
-fun LoadingCardPreview() {
-    LoadingCard(
-        message = "Scanning for ESP32 Wi-Fi networks...",
-        color = WifiGreen
     )
 }

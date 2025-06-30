@@ -15,9 +15,12 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.net.Uri
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.ParcelUuid
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -77,8 +80,10 @@ class BleTransfer(private val context: Context) {
     /** BLE scanner for discovering devices */
     private val bluetoothLeScanner = bluetoothAdapter?.bluetoothLeScanner
 
-    /** Main thread handler for UI updates */
-    private val handler = Handler(Looper.getMainLooper())
+    // Use background thread for BLE operations
+    private val bleHandlerThread = HandlerThread("BleOperations").apply { start() }
+    private val bleHandler = Handler(bleHandlerThread.looper)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     // === CONNECTION STATE ===
     /** Active GATT connection to ESP32 device */
@@ -118,21 +123,25 @@ class BleTransfer(private val context: Context) {
 
                 val scanCallback = object : ScanCallback() {
                     override fun onScanResult(callbackType: Int, result: ScanResult) {
-                        try {
-                            val device = result.device
-                            val deviceName = device?.name
+                        // Process scan results on background thread
+                        bleHandler.post {
+                            try {
+                                val device = result.device
+                                val deviceName = device?.name
 
-                            // Filter for ESP32 devices
-                            if (device != null && deviceName != null &&
-                                (deviceName.contains("ESP32", ignoreCase = true) ||
-                                        deviceName.contains("ESP", ignoreCase = true)) &&
-                                !scanResults.contains(device.address)
-                            ) {
-                                scanResults.add(device.address)
-                                foundDevices.add(device)
+                                if (device != null && deviceName != null &&
+                                    (deviceName.contains("ESP32", ignoreCase = true) ||
+                                            deviceName.contains("ESP", ignoreCase = true)) &&
+                                    !scanResults.contains(device.address)
+                                ) {
+                                    synchronized(scanResults) {
+                                        scanResults.add(device.address)
+                                        foundDevices.add(device)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                // Handle scanning errors silently
                             }
-                        } catch (e: Exception) {
-                            // Handle any scanning errors
                         }
                     }
 
@@ -158,8 +167,8 @@ class BleTransfer(private val context: Context) {
                 try {
                     bluetoothLeScanner.startScan(scanFilters, scanSettings, scanCallback)
 
-                    // Stop scanning after SCAN_PERIOD
-                    handler.postDelayed({
+                    // Use background handler for SCAN_PERIOD timeout
+                    bleHandler.postDelayed({
                         try {
                             bluetoothLeScanner.stopScan(scanCallback)
                             if (!continuation.isCompleted) {
@@ -214,20 +223,23 @@ class BleTransfer(private val context: Context) {
                         status: Int,
                         newState: Int
                     ) {
-                        when (newState) {
-                            BluetoothProfile.STATE_CONNECTED -> {
-                                bluetoothGatt = gatt
-                                isConnected.set(true)
-                                // Request larger MTU for faster data transfer
-                                gatt?.requestMtu(MTU_SIZE)
-                            }
+                        // Handle connection state changes on background thread
+                        bleHandler.post {
+                            when (newState) {
+                                BluetoothProfile.STATE_CONNECTED -> {
+                                    bluetoothGatt = gatt
+                                    isConnected.set(true)
+                                    // Request larger MTU for faster data transfer
+                                    gatt?.requestMtu(MTU_SIZE)
+                                }
 
-                            BluetoothProfile.STATE_DISCONNECTED -> {
-                                isConnected.set(false)
-                                bluetoothGatt = null
-                                if (!isResumed) {
-                                    isResumed = true
-                                    continuation.resume(false)
+                                BluetoothProfile.STATE_DISCONNECTED -> {
+                                    isConnected.set(false)
+                                    bluetoothGatt = null
+                                    if (!isResumed) {
+                                        isResumed = true
+                                        continuation.resume(false)
+                                    }
                                 }
                             }
                         }
@@ -235,36 +247,46 @@ class BleTransfer(private val context: Context) {
 
                     override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
                         // MTU changed, now discover services
-                        gatt?.discoverServices()
+                        bleHandler.post {
+                            gatt?.discoverServices()
+                        }
                     }
 
                     override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
-                        if (status == BluetoothGatt.GATT_SUCCESS) {
-                            val service = gatt?.getService(ESP32_SERVICE_UUID)
-                            if (service != null) {
-                                txCharacteristic = service.getCharacteristic(ESP32_CHAR_TX_UUID)
-                                rxCharacteristic = service.getCharacteristic(ESP32_CHAR_RX_UUID)
+                        bleHandler.post {
+                            if (status == BluetoothGatt.GATT_SUCCESS) {
+                                val service = gatt?.getService(ESP32_SERVICE_UUID)
+                                if (service != null) {
+                                    txCharacteristic = service.getCharacteristic(ESP32_CHAR_TX_UUID)
+                                    rxCharacteristic = service.getCharacteristic(ESP32_CHAR_RX_UUID)
 
-                                val txChar = txCharacteristic
-                                val rxChar = rxCharacteristic
+                                    val txChar = txCharacteristic
+                                    val rxChar = rxCharacteristic
 
-                                if (txChar != null && rxChar != null) {
-                                    // Enable notifications on RX characteristic
-                                    val success = gatt.setCharacteristicNotification(rxChar, true)
-                                    if (success) {
-                                        val descriptor = rxChar.getDescriptor(
-                                            UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-                                        )
-                                        descriptor?.let { desc ->
-                                            desc.value =
-                                                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                                            gatt.writeDescriptor(desc)
+                                    if (txChar != null && rxChar != null) {
+                                        // Enable notifications on RX characteristic
+                                        val success =
+                                            gatt.setCharacteristicNotification(rxChar, true)
+                                        if (success) {
+                                            val descriptor = rxChar.getDescriptor(
+                                                UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+                                            )
+                                            descriptor?.let { desc ->
+                                                desc.value =
+                                                    BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                                                gatt.writeDescriptor(desc)
+                                            }
                                         }
-                                    }
 
-                                    if (!isResumed) {
-                                        isResumed = true
-                                        continuation.resume(true)
+                                        if (!isResumed) {
+                                            isResumed = true
+                                            continuation.resume(true)
+                                        }
+                                    } else {
+                                        if (!isResumed) {
+                                            isResumed = true
+                                            continuation.resume(false)
+                                        }
                                     }
                                 } else {
                                     if (!isResumed) {
@@ -277,11 +299,6 @@ class BleTransfer(private val context: Context) {
                                     isResumed = true
                                     continuation.resume(false)
                                 }
-                            }
-                        } else {
-                            if (!isResumed) {
-                                isResumed = true
-                                continuation.resume(false)
                             }
                         }
                     }
@@ -348,54 +365,59 @@ class BleTransfer(private val context: Context) {
 
         isTransferCancelled = false
 
-        try {
-            val inputStream = context.contentResolver.openInputStream(fileUri)
-            inputStream?.use { stream ->
-                val fileSize = stream.available()
-                val buffer = ByteArray(CHUNK_SIZE)
-                var totalBytesSent = 0
+        // Perform file operations on IO dispatcher
+        withContext(Dispatchers.IO) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(fileUri)
+                inputStream?.use { stream ->
+                    val fileSize = stream.available()
+                    val buffer = ByteArray(CHUNK_SIZE)
+                    var totalBytesSent = 0
 
-                // Send file header with size info
-                if (!sendFileHeader(fileSize)) {
-                    onComplete(false)
-                    return
-                }
-
-                // Send file data in chunks
-                var bytesRead: Int
-                while (stream.read(buffer).also { bytesRead = it } != -1 &&
-                    !isTransferCancelled && isConnected.get()
-                ) {
-                    val chunk = if (bytesRead < CHUNK_SIZE) {
-                        buffer.copyOf(bytesRead)
-                    } else {
-                        buffer
-                    }
-
-                    if (!sendChunk(chunk)) {
+                    // Send file header with size info
+                    if (!sendFileHeader(fileSize)) {
                         onComplete(false)
-                        return
+                        return@withContext
                     }
 
-                    totalBytesSent += bytesRead
-                    val progress = totalBytesSent.toFloat() / fileSize.toFloat()
-                    onProgress(progress)
+                    // Send file data in chunks on IO thread
+                    var bytesRead: Int
+                    while (stream.read(buffer).also { bytesRead = it } != -1 &&
+                        !isTransferCancelled && isConnected.get()
+                    ) {
+                        val chunk = if (bytesRead < CHUNK_SIZE) {
+                            buffer.copyOf(bytesRead)
+                        } else {
+                            buffer
+                        }
 
-                    // Small delay to prevent overwhelming the BLE connection
-                    kotlinx.coroutines.delay(20)
-                }
+                        if (!sendChunk(chunk)) {
+                            onComplete(false)
+                            return@withContext
+                        }
 
-                if (!isTransferCancelled && isConnected.get()) {
-                    // Send transfer completion signal
-                    sendTransferComplete()
-                    onComplete(true)
-                } else {
-                    onComplete(false)
+                        totalBytesSent += bytesRead
+                        val progress = totalBytesSent.toFloat() / fileSize.toFloat()
+
+                        // Update progress on main thread efficiently
+                        mainHandler.post { onProgress(progress) }
+
+                        // Small delay to prevent overwhelming the BLE connection
+                        kotlinx.coroutines.delay(20)
+                    }
+
+                    if (!isTransferCancelled && isConnected.get()) {
+                        // Send transfer completion signal
+                        sendTransferComplete()
+                        mainHandler.post { onComplete(true) }
+                    } else {
+                        mainHandler.post { onComplete(false) }
+                    }
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                mainHandler.post { onComplete(false) }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            onComplete(false)
         }
     }
 
@@ -403,25 +425,25 @@ class BleTransfer(private val context: Context) {
      * Sends file header information to ESP32.
      * Header format: "FILE_START:[fileSize]"
      */
-    private fun sendFileHeader(fileSize: Int): Boolean {
+    private suspend fun sendFileHeader(fileSize: Int): Boolean = withContext(Dispatchers.IO) {
         val header = "FILE_START:$fileSize".toByteArray()
-        return writeCharacteristic(header)
+        writeCharacteristic(header)
     }
 
     /**
      * Sends a chunk of file data to ESP32.
      */
-    private fun sendChunk(data: ByteArray): Boolean {
-        return writeCharacteristic(data)
+    private suspend fun sendChunk(data: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        writeCharacteristic(data)
     }
 
     /**
      * Sends transfer completion signal to ESP32.
      * Signal format: "FILE_END"
      */
-    private fun sendTransferComplete(): Boolean {
+    private suspend fun sendTransferComplete(): Boolean = withContext(Dispatchers.IO) {
         val endSignal = "FILE_END".toByteArray()
-        return writeCharacteristic(endSignal)
+        writeCharacteristic(endSignal)
     }
 
     /**
@@ -436,6 +458,7 @@ class BleTransfer(private val context: Context) {
             val txChar = txCharacteristic
 
             if (gatt != null && txChar != null && isConnected.get()) {
+                // Perform write operation synchronously
                 txChar.value = data
                 gatt.writeCharacteristic(txChar)
             } else {
@@ -462,16 +485,21 @@ class BleTransfer(private val context: Context) {
         cancelTransfer()
         isConnected.set(false)
 
-        try {
-            bluetoothGatt?.disconnect()
-            bluetoothGatt?.close()
-        } catch (e: Exception) {
-            // Handle exceptions during cleanup gracefully
-        }
+        bleHandler.post {
+            try {
+                bluetoothGatt?.disconnect()
+                bluetoothGatt?.close()
+            } catch (e: Exception) {
+                // Handle exceptions during cleanup gracefully
+            }
 
-        // Clear all references
-        bluetoothGatt = null
-        txCharacteristic = null
-        rxCharacteristic = null
+            // Clear all references
+            bluetoothGatt = null
+            txCharacteristic = null
+            rxCharacteristic = null
+
+            // Clean up background thread
+            bleHandlerThread.quitSafely()
+        }
     }
 }

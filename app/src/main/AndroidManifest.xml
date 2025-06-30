@@ -88,6 +88,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Esp32Connect"
+        android:usesCleartextTraffic="true"
         tools:targetApi="31">
         <!-- === MAIN ACTIVITY === -->
         <!-- Primary activity for ESP32 Connect application -->
